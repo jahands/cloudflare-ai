@@ -64,9 +64,7 @@ async function replyToMessage(request: Request, env: Env, _ctx: ExecutionContext
 		tools: mcpTools,
 	});
 
-	return createUIMessageStreamResponse({
-		stream: result.toUIMessageStream(),
-	});
+	return result.toUIMessageStreamResponse();
 }
 
 export default {

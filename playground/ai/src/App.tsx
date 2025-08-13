@@ -1,4 +1,5 @@
 import { useChat } from "@ai-sdk/react";
+import { DefaultChatTransport } from "ai";
 import type { Tool } from "@modelcontextprotocol/sdk/types.js";
 import { useRef, useState } from "react";
 import { useHotkeys } from "react-hotkeys-hook";
@@ -72,18 +73,20 @@ const App = () => {
 	const [settingsVisible, setSettingsVisible] = useState(false);
 	const [systemMessage, setSystemMessage] = useState("You are a helpful assistant");
 	const [mcpTools, setMcpTools] = useState<Tool[]>([]);
+	const [input, setInput] = useState("");
 
-	const { messages, input, handleInputChange, handleSubmit, status, setMessages } = useChat({
-		api: "/api/inference",
-		body: {
-			lora: params.lora,
-			max_tokens: params.max_tokens,
-			model: params.model,
-			stream: params.stream,
-			system_message: systemMessage,
-			tools: mcpTools,
-		},
-		maxSteps: 5,
+	const { messages, sendMessage, status, setMessages, addToolResult } = useChat({
+		transport: new DefaultChatTransport({
+			api: "/api/inference",
+			body: {
+				lora: params.lora,
+				max_tokens: params.max_tokens,
+				model: params.model,
+				stream: params.stream,
+				system_message: systemMessage,
+				tools: mcpTools,
+			},
+		}),
 
 		async onToolCall({ toolCall }) {
 			try {
@@ -91,10 +94,10 @@ const App = () => {
 				const mcpTool = mcpTools.find((t) => t.name === toolCall.toolName);
 				// console.log({ mcpTool });
 				if (mcpTool) {
-					const { args } = toolCall as { args: Record<string, any> };
+					const { input: toolInput } = toolCall;
 					// convert any args from string to number if their schema says they should be
 					const convertedArgs = Object.fromEntries(
-						Object.entries(args).map(([key, value]) => {
+						Object.entries(toolInput as unknown as Record<string, any>).map(([key, value]) => {
 							// console.log({ key, value });
 							if (
 								(mcpTool.inputSchema.properties?.[key] as any)?.type === "number" &&
@@ -108,8 +111,9 @@ const App = () => {
 					// console.log({ toolCall, mcpTool, args, convertedArgs });
 					const calledTool = await (mcpTool as any).callTool(convertedArgs);
 					// console.log({ calledTool });
+					let result = "";
 					if (Array.isArray(calledTool?.content)) {
-						return (
+						result = (
 							calledTool.content
 								// @ts-expect-error need to fix this
 								.map((c) => {
@@ -138,8 +142,16 @@ const App = () => {
 								})
 								.join("\n")
 						);
+					} else {
+						result = `Sorry, something went wrong. Got this response: ${JSON.stringify(calledTool)}`;
 					}
-					return `Sorry, something went wrong. Got this response: ${JSON.stringify(calledTool)}`;
+
+					// Add tool result
+					addToolResult({
+						tool: toolCall.toolName,
+						toolCallId: toolCall.toolCallId,
+						output: result,
+					});
 				}
 			} catch (e) {
 				console.log(e);
@@ -152,6 +164,18 @@ const App = () => {
 	const streaming = status === "streaming";
 
 	const messageElement = useRef<HTMLDivElement>(null);
+
+	const handleInputChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+		setInput(e.target.value);
+	};
+
+	const handleSubmit = (e?: React.FormEvent) => {
+		if (e) e.preventDefault();
+		if (input.trim()) {
+			sendMessage({ text: input });
+			setInput("");
+		}
+	};
 
 	useHotkeys("meta+enter, ctrl+enter", () => handleSubmit(), {
 		enableOnFormTags: ["textarea"],
@@ -304,10 +328,14 @@ const App = () => {
 											});
 											setMessages([
 												{
-													content:
-														finetuneTemplates[
-															model?.name as keyof typeof finetuneTemplates
-														] || "",
+													parts: [
+														{
+															type: "text",
+															text: finetuneTemplates[
+																model?.name as keyof typeof finetuneTemplates
+															] || "",
+														}
+													],
 													id: "0",
 													role: "user",
 												},
@@ -397,57 +425,65 @@ const App = () => {
 										<li className="mb-3 flex flex-col items-start border-b border-b-gray-100 w-full pb-3">
 											{message.parts.map((part, i) =>
 												part.type === "file" ? (
-													part.mimeType.startsWith("image/") ? (
+													part.mediaType?.startsWith("image/") ? (
 														<img
 															// biome-ignore lint/suspicious/noArrayIndexKey: it's fine
 															key={i}
 															className="max-w-md mx-auto"
-															src={`data:${part.mimeType};base64,${part.data}`}
+															src={part.url}
 															// biome-ignore lint/a11y/noRedundantAlt: it's fine
 															alt="Image from tool call response"
 														/>
 													) : null
-												) : part.type === "tool-invocation" ? (
-													// biome-ignore lint/suspicious/noArrayIndexKey: <expla	nation>
+												) : part.type.startsWith("tool-") ? (
+													// biome-ignore lint/suspicious/noArrayIndexKey: it's fine
 													<div key={i}>
-														<div className="w-full text-center italic text-xs text-gray-400 font-mono max-h-20 overflow-auto break-all px-2 whitespace-pre-line">
-															[tool] {part.toolInvocation.toolName}(
-															{JSON.stringify(
-																part.toolInvocation.args,
-															)}
-															) =&gt;&nbsp;
-															{part.toolInvocation.state === "call" &&
-															status === "ready"
-																? "awaiting confirmation..."
-																: part.toolInvocation.state ===
-																		"call"
-																	? "pending..."
-																	: part.toolInvocation.state ===
-																			"result"
-																		? part.toolInvocation.result
-																		: null}
-														</div>
-														{part.toolInvocation.state === "result" &&
-														part.toolInvocation.result.match(
-															/\[blob:.*]/,
-														) ? (
-															<img
-																className="block max-w-md mx-auto mt-3"
-																src={
-																	part.toolInvocation.result.match(
-																		/\[(blob:.*)]/,
-																	)[1]
-																}
-																// biome-ignore lint/a11y/noRedundantAlt: it's fine
-																alt="Image from tool call response"
-															/>
-														) : null}
+														{(() => {
+															// Type guard for tool parts
+															if ("state" in part) {
+																const toolPart = part as any;
+																return (
+																	<>
+																		<div className="w-full text-center italic text-xs text-gray-400 font-mono max-h-20 overflow-auto break-all px-2 whitespace-pre-line">
+																			[tool] {part.type.replace("tool-", "")}(
+																			{toolPart.state === "input-streaming" ? "streaming..." : 
+																			 toolPart.state === "input-available" ? JSON.stringify(toolPart.input) :
+																			 toolPart.state === "output-available" ? JSON.stringify(toolPart.input) :
+																			 toolPart.state === "output-error" ? JSON.stringify(toolPart.input) : ""
+																			}) =&gt;&nbsp;
+																			{toolPart.state === "input-streaming"
+																				? "preparing..."
+																				: toolPart.state === "input-available"
+																					? "executing..."
+																					: toolPart.state === "output-available"
+																						? toolPart.output
+																						: toolPart.state === "output-error"
+																							? `Error: ${toolPart.errorText}`
+																							: null}
+																		</div>
+																		{toolPart.state === "output-available" &&
+																		typeof toolPart.output === "string" &&
+																		toolPart.output.match(/\[blob:.*]/) ? (
+																			<img
+																				className="block max-w-md mx-auto mt-3"
+																				src={
+																					toolPart.output.match(/\[(blob:.*)]/)?.[1] || ""
+																				}
+																				// biome-ignore lint/a11y/noRedundantAlt: it's fine
+																				alt="Image from tool call response"
+																			/>
+																		) : null}
+																	</>
+																);
+															}
+															return null;
+														})()}
 													</div>
 												) : null,
 											)}
 										</li>
 									)}
-									{message.content ? (
+									{message.parts.some(p => p.type === "text") ? (
 										<li className="mb-3 flex items-start border-b border-b-gray-100 w-full py-2">
 											<div className="mr-3 w-[80px]">
 												<button
@@ -466,7 +502,7 @@ const App = () => {
 														(streaming || loading) &&
 														"pointer-events-none"
 													}`}
-													value={message.content}
+													value={message.parts.find(p => p.type === "text")?.text || ""}
 													disabled={true}
 													onChange={handleInputChange}
 												/>

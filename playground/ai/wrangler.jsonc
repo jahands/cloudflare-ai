@@ -1,17 +1,14 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
-  "name": "workers-ai-playground",
+  "name": "workers-ai-playground-test",
   "compatibility_date": "2025-05-08",
   "compatibility_flags": ["nodejs_compat"],
   "main": "src/server/index.ts",
-  "workers_dev": false,
+  "workers_dev": true,
   "ai": {
-    "binding": "AI",
+    "binding": "AI"
   },
-  "routes": [
-    { "pattern": "playground.ai.cloudflare.com", "custom_domain": true },
-  ],
   "assets": {
-    "not_found_handling": "single-page-application",
-  },
+    "not_found_handling": "single-page-application"
+  }
 }

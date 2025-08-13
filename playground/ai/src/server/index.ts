@@ -1,5 +1,5 @@
 import type { Tool } from "@modelcontextprotocol/sdk/types.js";
-import { jsonSchema, streamText, type UIMessage } from "ai";
+import { jsonSchema, streamText, convertToModelMessages, type UIMessage } from "ai";
 import { createWorkersAI } from "workers-ai-provider";
 import { models } from "../models";
 
@@ -55,19 +55,18 @@ async function replyToMessage(request: Request, env: Env, _ctx: ExecutionContext
 	// console.log(mcpTools);
 
 	const result = streamText({
-		maxTokens: max_tokens,
-		messages,
+		maxOutputTokens: max_tokens,
+		messages: convertToModelMessages(messages),
 		model: workersai(model as Parameters<typeof workersai>[0]),
 		onError: (err) => {
 			console.log({ err });
 		},
 		system: system_message,
-		toolCallStreaming: false,
 		tools: mcpTools,
 	});
 
-	return result.toDataStreamResponse({
-		getErrorMessage: (error: unknown) => {
+	return result.toUIMessageStreamResponse({
+		onError: (error: unknown) => {
 			console.log(error);
 			return "Error during inference";
 		},

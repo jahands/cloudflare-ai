@@ -1,5 +1,5 @@
 import type { Tool } from "@modelcontextprotocol/sdk/types.js";
-import { jsonSchema, streamText, convertToModelMessages, type UIMessage } from "ai";
+import { jsonSchema, streamText, convertToModelMessages, createUIMessageStreamResponse, type UIMessage } from "ai";
 import { createWorkersAI } from "workers-ai-provider";
 import { models } from "../models";
 
@@ -45,8 +45,7 @@ async function replyToMessage(request: Request, env: Env, _ctx: ExecutionContext
 				t.name,
 				{
 					description: t.description,
-					// @ts-expect-error it's fine
-					parameters: jsonSchema(t.inputSchema),
+					inputSchema: t.inputSchema as any,
 				},
 			];
 		}),
@@ -65,16 +64,8 @@ async function replyToMessage(request: Request, env: Env, _ctx: ExecutionContext
 		tools: mcpTools,
 	});
 
-	return result.toUIMessageStreamResponse({
-		onError: (error: unknown) => {
-			console.log(error);
-			return "Error during inference";
-		},
-		headers: {
-			"Content-Type": "text/x-unknown",
-			"content-encoding": "identity",
-			"transfer-encoding": "chunked",
-		},
+	return createUIMessageStreamResponse({
+		stream: result.toUIMessageStream(),
 	});
 }
 

@@ -1,5 +1,5 @@
 import { useChat } from "@ai-sdk/react";
-import { DefaultChatTransport } from "ai";
+import { DefaultChatTransport, lastAssistantMessageIsCompleteWithToolCalls } from "ai";
 import type { Tool } from "@modelcontextprotocol/sdk/types.js";
 import { useRef, useState } from "react";
 import { useHotkeys } from "react-hotkeys-hook";
@@ -78,15 +78,17 @@ const App = () => {
 	const { messages, sendMessage, status, setMessages, addToolResult } = useChat({
 		transport: new DefaultChatTransport({
 			api: "/api/inference",
-			body: {
+			body: () => ({
 				lora: params.lora,
 				max_tokens: params.max_tokens,
 				model: params.model,
 				stream: params.stream,
 				system_message: systemMessage,
 				tools: mcpTools,
-			},
+			}),
 		}),
+
+		sendAutomaticallyWhen: lastAssistantMessageIsCompleteWithToolCalls,
 
 		async onToolCall({ toolCall }) {
 			try {
